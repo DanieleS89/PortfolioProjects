@@ -1,0 +1,253 @@
+---
+title: "Bike analysis Q4"
+author: "Daniele Favale"
+date: "2024-01-22"
+output:
+  html_document: default
+  pdf_document: 
+    toc: true
+    number_sections: true
+    fig_width: 8
+  word_document: default
+---
+
+```{r, global_options, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, tidy.opts=list(width.cutoff=60), tidy=TRUE) 
+```
+
+## Tools used:
+
+For this analysis I decided to use R Studio due to its ability to manipulate big datasets
+
+## A description of all data sources used:
+
+This file only takes into consideration the data from the last quarter (Q4) of 2019. There are further files with data from the other quarters (Q1, Q2, Q3). The following analysis only concerns the last four months and it is not possible to analyze monthly trends. For a more complete analysis and to be able to analyze seasonal trends it is necessary to also analyze the other quarters and combine the data to get a more complete picture.
+
+## What is the problem I'm trying to solve?
+
+The objective is to understand how customers and subscribers use the bike share service differently. The results of this analysis can help understand how to convert occasional customers into annual subscribers.
+
+---------Library used-----------
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(skimr)
+library(lubridate)
+library(forcats)
+```
+
+################################################################################# 
+
+####################################--EXPLORE--################################## \#################################################################################
+
+```{r}
+bike_original_4 <- read.csv("Divvy_Trips_2019_Q4.csv", sep = ",")
+```
+
+```{r}
+head(bike_original_4)
+glimpse(bike_original_4)
+```
+
+```{r}
+# to see the unique values
+unique(bike_original_4$usertype)
+```
+
+```{r}
+# how many Customers and Subscribers
+table(bike_original_4$usertype)
+
+```
+
+```{r}
+# quick analysis
+skim_without_charts(bike_original_4)
+```
+
+```{r}
+# check for NA values
+colSums(is.na(bike_original_4))
+```
+
+```{r}
+# check for NA or null
+colSums(is.na(bike_original_4) | bike_original_4 == "")
+```
+
+################################################################################# 
+
+#################################--MANIPULATE--################################## \#################################################################################
+
+```{r}
+# convert "start_time" into a POSIXct class object
+bike_original_4$start_time <- as.POSIXct(bike_original_4$start_time, format="%Y-%m-%d %H:%M:%S")
+```
+
+```{r}
+# now we can create 3 new variables
+bike_original_4$month <- month(bike_original_4$start_time, label = TRUE, abbr = FALSE)
+bike_original_4$day <- weekdays(bike_original_4$start_time)
+```
+
+```{r}
+# create the variable "hour" and convert into a POSIXct class object in order to modify it later
+bike_original_4$hour <- as.POSIXct(bike_original_4$start_time, format="%I:%M %p", tz = "UTC")
+```
+
+```{r}
+# round up hours to see only 24 unique values inside variable (format is still 2019-10-01 00:05:00)
+bike_original_4$hour_rounded <- floor_date(bike_original_4$hour, unit = "hour")
+```
+
+```{r}
+# change format to 12:00 AM, ecc...
+bike_original_4$hour_rounded <- strftime(bike_original_4$hour_rounded, format="%I:%M %p", tz = "UTC")
+```
+
+```{r}
+# remove commas and decimals from variable "tripduration"
+bike_original_4$tripduration <- gsub(",", "", bike_original_4$tripduration)
+bike_original_4$tripduration <- as.numeric(gsub("\\..*", "", bike_original_4$tripduration))
+```
+
+```{r}
+# create a new variable "trip_d_minutes" expressed in minutes as integer value
+bike_original_4 <- bike_original_4 %>%
+  mutate(trip_d_minutes = tripduration %/% 60)
+```
+
+```{r}
+# create a smaller dataframe by filtering only necessaries values for the analysis
+tab_4 <- bike_original_4[c("usertype", "gender", "birthyear", "month", "day", "hour_rounded", "trip_d_minutes")]
+```
+
+################################################################################# 
+
+###################################--CLEAN--##################################### \#################################################################################
+
+```{r}
+# replace null values with "NA"
+tab_4$gender[tab_4$gender == ""] <- "NA"
+```
+
+################################################################################# 
+
+###############################-VISUALIZE & ANALIZE--############################ \#################################################################################
+
+```{r}
+# 1) TRIP COUNT: add percentage values on top of the bar
+ggplot(data=tab_4, aes(x=usertype, fill=usertype)) + 
+  geom_bar() +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5) +
+  geom_text(stat='count', aes(label=sprintf("%.1f%%", (..count..)/sum(..count..)*100)), vjust=1.5) +
+  ggtitle("Trip count by usertype (percentage)") +
+  ylab("trip count") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Graph number 1 highlights that Subscribers takes the majority of trips with 85% of the total. Customer: 106194 Subscriber: 597860
+
+### We cannot establish the real number of customers because we do not have a unique ID that identifies them. We can only know how many trips Customers make compared to Subscribers but we cannot know the precise number of individual customers. For this reason there may be customers who travel once a month, others who travel every day, and others who travel several times a day.
+
+```{r}
+# 2) TRIP AVERAGE BY USERTYPE: calculate the average trip duration (minutes) by usertype
+ggplot(data=tab_4, aes(x=usertype, y=trip_d_minutes, fill=usertype)) + 
+  geom_bar(stat="summary", fun = "mean", position = "dodge") +
+  geom_text(stat="summary", aes(label=sprintf("%.2f",..y..)), position=position_dodge(width=0.9), vjust=-0.5) +
+  ggtitle("Average trip duration (minutes)") +
+  ylab("minutes") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Graph number 2 analyzes the average of trips. Occasional customers use the bike share service for longer than Subscribers. The average duration of a trip for Subscribers is 12 minutes, while it reaches 60 minutes for occasional customers.
+
+```{r}
+# create a variable 'unique_levels' which contains unique leves from variable 'hour_rounded'. This is necessarie to reorder hours on the x axis
+unique_levels <- unique(tab_4$hour_rounded)
+tab_4$hour_rounded <- factor(tab_4$hour_rounded, levels = unique_levels)
+
+# 3) TRIPCOUNT BY DAYTIME: create a visualization depicting the relationship between trip duration and daytime, grouped by usertype
+ggplot(data = tab_4, aes(x = factor(hour_rounded, levels = unique_levels), fill = usertype)) +
+  geom_bar(stat = "count") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 7)) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("tripcount") +
+  xlab("daytime") +
+  labs(title = "Tripcount by daytime") +
+  facet_grid(~usertype)
+```
+
+### Graph number 3 highlights how Customers and Subscribers use the Bike Share service differently during the hours of the day. The graph takes into consideration the number of daily trips, divided by usertype. We can see that Subscribers concentrate their trips from 7:00 AM to 8:00 AM, and from 4:00 PM to 6:00 PM. These times correspond to the times you start work in the morning and return home in the afternoon. Subscribers probably use the Bike Share service more to go to work. Customers, on the other hand, tend not to follow the same trend. Customers increase their usage gradually starting from the morning hours until reaching the peak at 3:00 PM, and then gradually decreasing until the evening hours. This suggests a use that does not correspond to working hours.
+
+```{r}
+# 4) TRIPCOUNT BY BIRTHYEAR: this highlights the relationship between birthyear and tripduration grouped by usertype (note the NA values)
+tab_4$birthyear_factor <- factor(tab_4$birthyear, levels = c(levels(factor(tab_4$birthyear)), "NA"))
+ggplot(data = tab_4, aes(x = birthyear_factor, fill = usertype)) +
+  geom_bar(stat = "count") +
+  theme(legend.position = "top") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 6)) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("tripcount") +
+  xlab("birthyear") +
+  labs(title = "Tripcount by birthyear")
+```
+
+### Graph number 4 relates the number of trips to the year of birth of the customers, and then divides them by color based on the usertype. The data highlights how there is a greater concentration of use for customers born approximately between the years 80' and 96'. Another data to take into consideration is the "NA" data. Within the dataset there are many missing values in the "gender" vector and in the "birthyear" vector. The color of the usertypes shows us a rather high lack of information regarding the year of birth of the Customers, while it is more negligible for the Subscribers. This may be due to the type of Customer registration. Maybe Customers don't fill out the form with their data correctly.
+
+```{r}
+# 5) TRIPCOUNT BY DAY: tripduration percentage by weekday
+ggplot(data=tab_4, aes(x = fct_relevel(factor(day), "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"), fill = usertype)) +
+  geom_bar(stat = "count") +
+  geom_text(stat='count', aes(label=sprintf("%.1f%%", after_stat(count)/sum(..count..)*100)), vjust=1.5) +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("tripcount") +
+  xlab("day") +
+  labs(title = "Tripcount by day") +
+  facet_wrap(~usertype)
+```
+
+### Graph number 5 shows us how Subscribers tend to use the Bike Share service during working days, from Monday to Friday. Customers, on the other hand, use the service more during the weekend.
+
+```{r}
+# 6) TRIPCOUNT BY MONTH
+ggplot(data=tab_4, aes(x = month, fill = usertype)) +
+  geom_bar(stat = "count") +
+  geom_text(stat='count', aes(label=sprintf("%.1f%%", after_stat(count)/sum(..count..)*100)), vjust=1.5) +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(angle = 45, hjust = 1)) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("tripcount") +
+  xlab("month") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  labs(title = "Tripcount by month") +
+  facet_wrap(~usertype)
+```
+
+### Graph number 6 analyzes the usage trend over the months. This dataset contains data only on October, November, December. For both Customers and Subscribers, October is the month of greatest use.
+
+```{r}
+# 7) GENDER ANALYSIS
+ggplot(data = tab_4, aes(x = usertype, fill = gender)) +
+  geom_bar(stat = "count") +
+  ggtitle("Gender analysis") +
+  ylab("trip count") +
+  scale_y_continuous(labels = scales::comma_format()) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Graph number 7 analyzes the gender of customers. For both Customers and Subscribers, customers are mostly male. Also in this case there are missing data, especially for occasional customers who have the highest number of "NA".
+
+### Recommendations:
+
+### 1) It is recommended to review your customer registration process to avoid NA values, especially one-time customers. The missing values of gender and birthyear are quite high and prevent in-depth analysis.
+
+### 2) To convert occasional customers into subscribers, the average number of trips must also be considered. An occasional customer travels for 60 minutes on average, which is approximately 5 times more than subscribers who travel on average only 12 minutes. For an occasional customer it might be more convenient to sign up for a subscription rather than renting the bike for such long trips.
+
+### 3) It would be useful to record a user ID within the dataset for subsequent customers. With a unique user ID it would be possible to do in-depth analysis. For example: how many trips does each occasional customer make compared to a season ticket holder? A unique ID would allow relationships to be found based on daily and monthly usage. With current data, however, there may be customers who only make one trip a month, while others may travel every day. This question cannot be answered because we only know whether the customers are Customers or Subscribers.
